@@ -1,0 +1,17 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Pytest
+.pytest_cache/
+
+# Test output, gets regenerated every run
+results/
+test-results/
+
+# IDE clutter
+.vscode/
+.idea/
