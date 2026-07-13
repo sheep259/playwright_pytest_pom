@@ -176,10 +176,12 @@ This logger started from a template I had used in previous projects and was upgr
 
 - **Why failure screenshots are embedded in the report instead of linked**: A report that references image files by path breaks the moment it is shared without the folder next to it. Base64-embedding trades a larger file size for a single-file artifact that can be attached to a bug ticket as-is. A traditional linking approach could be implemented if file size became an issue. But at that point, the real issue is how many tests are failing. 
 
+- **Why CI runs the API suite but not the UI suite (for now)**: The first cross-suite CI run passed every API test and failed every UI test with the same failure snapshot: a Cloudflare "Performing security verification" challenge page. The public Toolshop instance sits behind Cloudflare bot protection, which challenges traffic from datacenter IPs like GitHub's runners, so the UI tests never reached the app (the API host is not challenged the same way, and my home IP is residential, which is why everything passes locally). I ruled out stealth plugins and user-agent tricks on principle: evading someone else's security control is not test automation. The real fix is the industry-standard one: stop testing infrastructure I do not control and self-host the app under test inside the pipeline. The Toolshop is open source with official Docker images, so the roadmap brings the UI suite back into CI against a localhost deployment. Until then, CI runs the API suite and the UI suite runs locally.
+
 ## Roadmap:
 - [x] Framework architecture, logging, HTML report, screenshot on failure
 - [x] Page objects and UI suites (login, search, sort, filter, product detail, cart)
 - [x] API suite (auth tokens, catalog contract, negative cases)
-- [x] GitHub Actions CI: API suite runs on every push (the public site's Cloudflare bot protection challenges datacenter IPs, so the UI suite stays local until the app is self-hosted in the pipeline)
+- [x] GitHub Actions CI: API suite runs on every push (see Reasonings for why the UI suite is not in CI yet)
 - [ ] Publish the HTML report as a CI build artifact
 - [ ] Docker: self-host the Toolshop inside the pipeline and bring the UI suite into CI
