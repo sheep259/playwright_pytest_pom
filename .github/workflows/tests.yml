@@ -6,22 +6,29 @@ name: tests
 on: push
 
 jobs:
-  # A job gets a fresh virtual machine that exists only for this run
-  smoke-check:
+  api-tests:
     runs-on: ubuntu-latest
 
     steps:
-      # The VM starts empty, it does not even have the repo's code.
-      # This official action clones the repo onto the runner.
+      # The VM starts empty. This official action clones the repo onto it.
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      # Prove we are on GitHub's machine and see what it comes with
-      - name: Look around the runner
+      # The runner ships with Python 3.12, but this project is developed
+      # on 3.11. Pin it so CI tests the same thing development tested.
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # No venv here on purpose. A venv isolates projects on a long-lived
+      # machine, but this VM lives for one job and is destroyed. The
+      # frozen requirements.txt reproduces the exact same environment.
+      - name: Install dependencies
         run: |
-          echo "Hello from GitHub's server!"
-          echo "Runner OS and Python out of the box:"
-          uname -a
-          python3 --version
-          echo "And here is my code, freshly cloned:"
-          ls
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # API tests only for now, they need no browsers installed
+      - name: Run the API suite
+        run: pytest -m api
