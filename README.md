@@ -180,5 +180,6 @@ This logger started from a template I had used in previous projects and was upgr
 - [x] Framework architecture, logging, HTML report, screenshot on failure
 - [x] Page objects and UI suites (login, search, sort, filter, product detail, cart)
 - [x] API suite (auth tokens, catalog contract, negative cases)
-- [ ] GitHub Actions CI: run the suite on every push and publish the HTML report as a build artifact
-- [ ] Docker: run the whole suite in a container with one command
+- [x] GitHub Actions CI: API suite runs on every push (the public site's Cloudflare bot protection challenges datacenter IPs, so the UI suite stays local until the app is self-hosted in the pipeline)
+- [ ] Publish the HTML report as a CI build artifact
+- [ ] Docker: self-host the Toolshop inside the pipeline and bring the UI suite into CI

@@ -5,8 +5,13 @@ name: tests
 # When to run: every push to any branch
 on: push
 
-# The two jobs below run IN PARALLEL on two separate fresh VMs.
-# That is why each one repeats checkout/python/deps: they share nothing.
+# CI currently runs the API suite only, and that is deliberate. The
+# public Toolshop instance sits behind Cloudflare bot protection, which
+# challenges traffic from datacenter IPs like GitHub's runners, so UI
+# tests never reach the app (the API host is not challenged). Rather
+# than trying to evade a security control, the plan is to self-host the
+# app inside the pipeline with Docker and point the UI suite at
+# localhost. Until then, the UI suite runs locally.
 jobs:
   api-tests:
     runs-on: ubuntu-latest
@@ -18,7 +23,7 @@ jobs:
       # The runner ships with Python 3.12, but this project is developed
       # on 3.11. Pin it so CI tests the same thing development tested.
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -32,30 +37,3 @@ jobs:
 
       - name: Run the API suite
         run: pytest -m api
-
-  ui-tests:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v5
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      # Chromium only in CI: one engine keeps the pipeline fast, and the
-      # cross-browser runs stay a local capability. --with-deps also
-      # apt-installs the Linux system libraries the browser needs, which
-      # a bare runner does not have.
-      - name: Install Playwright Chromium
-        run: playwright install --with-deps chromium
-
-      - name: Run the UI suite
-        run: pytest -m ui
