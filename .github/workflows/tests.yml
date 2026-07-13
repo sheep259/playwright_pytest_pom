@@ -1,0 +1,27 @@
+# GitHub Actions workflow. Lives in .github/workflows/, which is the
+# magic folder GitHub scans. Pushing this file is what activates it.
+name: tests
+
+# When to run: every push to any branch
+on: push
+
+jobs:
+  # A job gets a fresh virtual machine that exists only for this run
+  smoke-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      # The VM starts empty, it does not even have the repo's code.
+      # This official action clones the repo onto the runner.
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      # Prove we are on GitHub's machine and see what it comes with
+      - name: Look around the runner
+        run: |
+          echo "Hello from GitHub's server!"
+          echo "Runner OS and Python out of the box:"
+          uname -a
+          python3 --version
+          echo "And here is my code, freshly cloned:"
+          ls
