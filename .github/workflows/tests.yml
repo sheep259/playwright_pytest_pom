@@ -2,8 +2,13 @@
 # magic folder GitHub scans. Pushing this file is what activates it.
 name: tests
 
-# When to run: every push to any branch
-on: push
+# When to run: pushes that land on main, plus every pull request.
+# Limiting push to main stops PR branches from running the suite twice
+# (once for the branch push, once for the PR).
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 # CI currently runs the API suite only, and that is deliberate. The
 # public Toolshop instance sits behind Cloudflare bot protection, which
@@ -37,3 +42,15 @@ jobs:
 
       - name: Run the API suite
         run: pytest -m api
+
+      # Rescue the run's outputs before the VM is destroyed. The report,
+      # log file, and any failure screenshots become a downloadable zip
+      # on the run's page. if: always() matters, because a FAILING run
+      # is exactly when these files are worth reading.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-test-results
+          path: results/
+          retention-days: 30
