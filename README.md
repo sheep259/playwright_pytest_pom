@@ -1,5 +1,7 @@
 # Mason Garza: Playwright + Pytest Test Automation Framework
 
+[![tests](https://github.com/MasonGarza7/playwright_pytest_pom/actions/workflows/tests.yml/badge.svg)](https://github.com/MasonGarza7/playwright_pytest_pom/actions/workflows/tests.yml)
+
 ## Overview:
 This project is a UI and API test automation framework built with Python, Pytest, and Playwright. It targets [Practice Software Testing](https://practicesoftwaretesting.com), a modern Angular e-commerce application ("Toolshop") built specifically for test automation practice, along with its documented [REST API](https://api.practicesoftwaretesting.com/api/documentation).
 
@@ -183,5 +185,5 @@ This logger started from a template I had used in previous projects and was upgr
 - [x] Page objects and UI suites (login, search, sort, filter, product detail, cart)
 - [x] API suite (auth tokens, catalog contract, negative cases)
 - [x] GitHub Actions CI: API suite runs on every push (see Reasonings for why the UI suite is not in CI yet)
-- [ ] Publish the HTML report as a CI build artifact
+- [x] Publish the HTML report as a CI build artifact (downloadable from every run, kept 30 days)
 - [ ] Docker: self-host the Toolshop inside the pipeline and bring the UI suite into CI

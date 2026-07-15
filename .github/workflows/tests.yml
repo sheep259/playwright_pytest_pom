@@ -31,6 +31,10 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+          # Persist pip's download cache across runs, keyed on a hash of
+          # requirements.txt. Change a dependency and the key changes,
+          # so a stale cache can never poison a run.
+          cache: "pip"
 
       # No venv here on purpose. A venv isolates projects on a long-lived
       # machine, but this VM lives for one job and is destroyed. The
