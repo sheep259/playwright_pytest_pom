@@ -17,7 +17,9 @@ What this framework demonstrates:
 
 The suite currently runs 20 tests (11 UI, 9 API) green across all three browser engines.
 
-## Getting Started:
+## Quick Start - Public Website:
+Runs the suite against the public [practicesoftwaretesting.com](https://practicesoftwaretesting.com) site, no Docker required.
+
 1. Clone the repository:
 ```bash
 git clone https://github.com/MasonGarza7/playwright_pytest_pom.git
@@ -30,6 +32,39 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m playwright install
+```
+
+## Quick Start - Docker:
+Runs the suite against your OWN deployment of the Toolshop instead of the shared public site. The app is open source with official images, so `docker-compose.yml` in this repo boots the whole stack locally: Angular UI, Laravel API, nginx, and MariaDB. Full control over the app version, the data, and the network, and no dependency on anyone else's uptime.
+
+1. Complete the Quick Start - Public Website steps above, plus install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+2. Start the stack (the first run downloads ~1.5GB of images, later runs take seconds):
+```bash
+docker compose up -d
+```
+3. Build and seed the database (required on first start, and again after every `docker compose down` since the database data does not survive container removal):
+```bash
+docker compose exec laravel-api php artisan migrate:fresh --seed
+```
+4. Verify the app is up: the store at [http://localhost:4200](http://localhost:4200) and the API's Swagger docs at [http://localhost:8091/api/documentation](http://localhost:8091/api/documentation)
+5. Point the suite at your deployment and run. Two overrides, one per consumer: the `--base-url` flag redirects the UI tests (overrides `base_url` in `pytest.ini`) and the `API_BASE_URL` environment variable redirects the API clients (read by `config/settings.py`):
+```bash
+$env:API_BASE_URL = "http://localhost:8091"
+pytest --base-url http://localhost:4200
+```
+6. To point back at the public site: drop the `--base-url` flag (it only lives for the one pytest run that carries it) and remove the environment variable from the PowerShell session:
+```bash
+Remove-Item Env:API_BASE_URL
+pytest
+```
+7. When done testing:
+```bash
+# pause the stack, keeps all data, resumes in seconds
+docker compose stop
+docker compose start
+
+# or demolish the containers entirely (re-seed on next startup, see step 3)
+docker compose down
 ```
 
 ## Running Tests:
@@ -93,6 +128,8 @@ playwright_pytest_pom/
 │   └── users_api.py          # Client for the user account endpoints (registration)
 ├── config/
 │   └── settings.py           # API base URL, overridable via env vars
+├── docker/
+│   └── vhost.conf            # nginx config for the self-hosted API, mounted by docker-compose.yml
 ├── pages/                    # Page objects, one class per page
 │   ├── components/
 │   │   └── nav_bar.py        # Navbar component object, composed into every page via BasePage
@@ -116,9 +153,11 @@ playwright_pytest_pom/
 │       ├── test_search.py    # Matching results, no-results message, search reset
 │       └── test_smoke.py     # Fast check that the framework plumbing works end to end
 ├── utils/
-│   └── logger.py             # Run-scoped file logger shared by pages, clients, and hooks
+│   ├── logger.py             # Run-scoped file logger shared by pages, clients, and hooks
+│   └── waits.py              # wait_until() polling helper for multi-element outcome checks
 ├── conftest.py               # Global fixtures and hooks: browser windowing, page object fixtures,
 │                             # per-run test user registration, screenshot-on-failure
+├── docker-compose.yml        # Boots the app under test locally: UI, API, nginx, and database
 ├── pytest.ini                # Pytest config: discovery, markers, base URL, reporting, live logging
 └── requirements.txt          # Frozen dependencies for reproducing the environment
 ```
@@ -160,7 +199,7 @@ This logger started from a template I had used in previous projects and was upgr
 
 - **Why there is exactly one XPath in the project**: In `home_page.py`, `open_product()` knows the `h5` holding the product name but needs to click the card link WRAPPING it. Climbing from a known child to its ancestor is the one job CSS cannot do and XPath exists for. Everywhere else, semantic or test-id locators win.
 
-- **Why there are no `sleep()` calls anywhere**: Hard waits are either too long (slow suite) or too short (flaky suite), and usually both on different days. Waiting is done with web-first assertions like `expect(...).to_be_visible()` that retry until a timeout, and with `expect_response()` wrapped around actions like sorting that trigger API refetches. The sort and filter helpers go one step further: they return the API response they triggered, and the test asserts the grid against that response's data with a retrying `expect`. That closes the gap between the response arriving and Angular repainting the grid (a race that surfaced as a real flake during development), and it doubles as a check that the UI renders exactly what the API returned.
+- **Why there are no `sleep()` calls anywhere**: Hard waits are either too long (slow suite) or too short (flaky suite), and usually both on different days. Waiting is done three ways, each matched to what is being waited on: web-first assertions like `expect(...).to_be_visible()` that retry until a timeout, `expect_response()` around actions that verifiably trigger an API call on every deployment (search does, so its helper returns the response and the test asserts the grid against that data), and the `wait_until()` polling helper in `utils/waits.py` for multi-element outcomes like "every price in the grid is ascending". All three are dynamic waits: they cost only as long as the condition actually takes.
 
 - **Why the global assertion timeout is 10 seconds**: The demo site is public and slows down under load. A WebKit run once failed purely because the account page took longer than the default 5 seconds to render, then passed in 5 seconds on rerun, which is the signature of a flake rather than a bug. Passing assertions return the instant their condition is met, so the test moves on instantly. Only genuine failures wait the full 10 seconds.
 
@@ -179,6 +218,10 @@ This logger started from a template I had used in previous projects and was upgr
 - **Why failure screenshots are embedded in the report instead of linked**: A report that references image files by path breaks the moment it is shared without the folder next to it. Base64-embedding trades a larger file size for a single-file artifact that can be attached to a bug ticket as-is. A traditional linking approach could be implemented if file size became an issue. But at that point, the real issue is how many tests are failing. 
 
 - **Why CI runs the API suite but not the UI suite (for now)**: The first cross-suite CI run passed every API test and failed every UI test with the same failure snapshot: a Cloudflare "Performing security verification" challenge page. The public Toolshop instance sits behind Cloudflare bot protection, which challenges traffic from datacenter IPs like GitHub's runners, so the UI tests never reached the app (the API host is not challenged the same way, and my home IP is residential, which is why everything passes locally). I ruled out stealth plugins and user-agent tricks on principle: evading someone else's security control is not test automation. The real fix is the industry-standard one: stop testing infrastructure I do not control and self-host the app under test inside the pipeline. The Toolshop is open source with official Docker images, so the roadmap brings the UI suite back into CI against a localhost deployment. Until then, CI runs the API suite and the UI suite runs locally.
+
+- **Why the search tests assert on name OR description**: Self-hosting the app surfaced a behavior difference between the two deployments this suite can target. The Docker images run newer search code (fulltext matching over names AND descriptions) than the public website (name substring matching). The same search for "pliers" returned only pliers on the public website, but on the self-hosted deployment it also returned a toolbelt whose description mentions pliers, and the tests failed there. The tests were wrong, not the app: their oracle came from watching the public website behave, which encoded one deployment's incidental behavior as the contract. The hardened oracle asserts the actual requirement, every hit must mention the term in its name or its description, and the UI grid must render exactly what the search API returned. That holds on both deployments and still catches the potential future bug, a product mentioning the term nowhere.
+
+- **Why the sort and filter tests poll the visible outcome instead of waiting on a network call**: The two deployments implement sorting differently. The self-hosted deployment asks the API for a re-sorted product list, so a network request fires. The public website re-orders the grid inside the browser, no request at all. The original tests waited for that request, which meant that on the public website they sat waiting for something that was never coming. That is the trap with network waits: they bake HOW the feature works into the test, and HOW is exactly what changes between versions. WHAT the user sees does not change: after sorting by price, prices go up, and after filtering by Hammer, only hammers remain. So these tests now poll for that visible outcome with the `wait_until()` helper and pass the moment it appears. The same investigation exposed something scarier: these tests used to pass on the public website anyway, because the old wait accepted any URL containing `/products`, and product IMAGES live under `/assets/img/products/`. The test waited for an API call, got an image file instead, and by then the browser had already re-ordered the grid, so the assertions found sorted prices. Two bugs canceling each other out into a green checkmark, the most dangerous kind of pass. Search is a different story: it fires an API call on both deployments, because the browser only ever holds one page of products and searching the full catalog requires asking the server. So the search tests keep the stronger network-based oracle. Each feature gets the strictest oracle the evidence supports. 
 
 ## Roadmap:
 - [x] Framework architecture, logging, HTML report, screenshot on failure
