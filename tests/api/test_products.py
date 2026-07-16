@@ -43,12 +43,19 @@ class TestProductCatalog:
         assert response.json()["message"] == "Requested item not found"
 
     def test_search_only_returns_matches(self, products_api):
-        """Verify product search does not leak non-matching products."""
+        """Verify every search hit mentions the term in its name or description."""
         response = products_api.search("pliers")
 
         assert response.status == 200
-        names = [product["name"] for product in response.json()["data"]]
-        assert names, "Expected search hits for 'pliers'"
-        assert all("pliers" in name.lower() for name in names), (
-            f"Search leaked non-matching products: {names}"
-        )
+        hits = response.json()["data"]
+        assert hits, "Expected search hits for 'pliers'"
+
+        # Name OR description on purpose. The public deployment matches
+        # names, newer builds run fulltext over descriptions too. Every
+        # hit mentioning the term somewhere is the deployment-agnostic
+        # contract, and a true leak still fails.
+        for product in hits:
+            haystack = f"{product['name']} {product['description'] or ''}".lower()
+            assert "pliers" in haystack, (
+                f"'{product['name']}' matches neither by name nor description"
+            )

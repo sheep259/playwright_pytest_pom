@@ -1,0 +1,65 @@
+# Runs the app under test, the Toolshop, on this machine. Same stack
+# that practicesoftwaretesting.com runs, minus their Cloudflare:
+# Angular UI on localhost:4200, Laravel API on localhost:8091.
+#
+# Adapted from the app's own docker-compose.prod.yml:
+# https://github.com/testsmith-io/practice-software-testing
+#
+# Usage:
+#   docker compose up -d              # start everything (first run downloads ~1.5GB)
+#   docker compose exec laravel-api php artisan migrate:fresh --seed
+#   docker compose down               # stop and remove containers (add -v to also wipe the DB)
+
+name: toolshop
+
+services:
+  # Laravel backend. Not exposed directly, nginx (web) fronts it.
+  laravel-api:
+    image: testsmith/practice-software-testing-${SPRINT:-sprint5}-api
+    depends_on:
+      - mariadb
+    environment:
+      - "PHP_OPCACHE_VALIDATE_TIMESTAMPS=1"
+      - "DB_PORT=3306"
+      - "DB_HOST=mariadb"
+      - "host=localhost"
+    volumes:
+      - laravel-app-code:/var/www
+
+  # Angular frontend, the thing the UI tests drive
+  angular-ui:
+    image: testsmith/practice-software-testing-${SPRINT:-sprint5}-ui
+    ports:
+      - "4200:4200"
+    command: >
+      bash -c "ng serve --host 0.0.0.0 --port 4200"
+
+  # nginx in front of the API. Host port 8091 is the API's public door,
+  # the local twin of api.practicesoftwaretesting.com.
+  # NOT the upstream testsmith/practice-software-testing-web image:
+  # that one is published arm64-only, and its nginx workers crash under
+  # emulation on amd64 machines (io_setup is not implemented in QEMU).
+  # Their image is just stock nginx plus one config file, so this
+  # recreates it: same base image, same config, mounted at runtime.
+  web:
+    image: nginx:1.23.3-alpine
+    ports:
+      - "8091:80"
+    depends_on:
+      - laravel-api
+    volumes:
+      - ./docker/vhost.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # The database. No ports published on purpose: only the containers
+  # need to reach it, and they do so over the compose network by name.
+  mariadb:
+    image: yobasystems/alpine-mariadb:10.6.11
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: user
+      MYSQL_PASSWORD: root
+      MYSQL_DATABASE: toolshop
+
+# Named volume holding the Laravel app code, shared into the API container
+volumes:
+  laravel-app-code:

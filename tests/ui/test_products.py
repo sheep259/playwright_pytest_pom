@@ -3,33 +3,33 @@
 import pytest
 from playwright.sync_api import expect
 
+from utils.waits import wait_until
+
 
 @pytest.mark.ui
 class TestProductGrid:
     def test_sort_by_price_low_to_high(self, home_page):
         """Verify sorting by price low to high orders the grid ascending."""
-        response = home_page.sort_by("Price (Low - High)")
+        home_page.sort_by("Price (Low - High)")
 
-        # Sync point: retry until the grid shows exactly what the sort
-        # call returned, THEN read prices off it safely
-        expected_names = [product["name"] for product in response.json()["data"]]
-        expect(home_page.product_names).to_have_text(expected_names)
+        # Poll the outcome instead of intercepting a network call. HOW
+        # the grid gets sorted differs between deployments, WHAT the
+        # user ends up seeing is the contract.
+        def grid_shows_ascending_prices():
+            prices = home_page.visible_prices()
+            return bool(prices) and prices == sorted(prices)
 
-        prices = home_page.visible_prices()
-        assert prices, "Expected the grid to have products after sorting"
-        assert prices == sorted(prices), f"Prices are not ascending: {prices}"
+        wait_until(grid_shows_ascending_prices, "the grid shows ascending prices")
 
     def test_filter_by_category(self, home_page):
         """Verify the Hammer category filter only leaves hammers in the grid."""
-        response = home_page.filter_by_category("Hammer")
+        home_page.filter_by_category("Hammer")
 
-        expected_names = [product["name"] for product in response.json()["data"]]
-        expect(home_page.product_names).to_have_text(expected_names)
+        def only_hammers_remain():
+            names = home_page.visible_product_names()
+            return bool(names) and all("hammer" in name.lower() for name in names)
 
-        assert expected_names, "Expected at least one product in the Hammer category"
-        assert all("hammer" in name.lower() for name in expected_names), (
-            f"Got products outside the Hammer category: {expected_names}"
-        )
+        wait_until(only_hammers_remain, "only Hammer products remain in the grid")
 
 
 @pytest.mark.ui

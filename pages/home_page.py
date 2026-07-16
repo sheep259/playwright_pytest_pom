@@ -37,12 +37,16 @@ class HomePage(BasePage):
         return self
 
     def search(self, term: str):
+        """Run a search and hand back the API response it triggered,
+        same pattern as sort_by. Lets tests assert the grid against
+        exactly what the search endpoint returned."""
         self.log.info(f"Searching for '{term}'")
         self.search_box.fill(term)
-        self.search_button.click()
-        # This marker appears once the search API call has finished
+        with self.page.expect_response(lambda r: "/products/search" in r.url and r.ok) as response_info:
+            self.search_button.click()
+        # This marker appears once the results have rendered
         expect(self.search_completed).to_be_visible()
-        return self
+        return response_info.value
 
     def reset_search(self):
         self.log.info("Resetting search")
@@ -51,24 +55,22 @@ class HomePage(BasePage):
         return self
 
     def sort_by(self, option_label: str):
-        """Pick a sort option and hand back the API response it triggered.
-
-        Waiting on the response alone is not enough, there is still a gap
-        between it arriving and Angular repainting the grid. Returning the
-        response lets the test assert the grid against the response data
-        with a retrying expect, which closes that gap.
+        """Pick a sort option. Deliberately does NOT wait on a network
+        response: whether sorting even fires an API call is an
+        implementation detail that differs between deployments (newer
+        builds sort server-side, older builds re-order the grid client
+        side with no request at all). Tests poll the visible outcome.
         """
         self.log.info(f"Sorting products by '{option_label}'")
-        with self.page.expect_response(lambda r: "/products" in r.url and r.ok) as response_info:
-            self.sort_dropdown.select_option(label=option_label)
-        return response_info.value
+        self.sort_dropdown.select_option(label=option_label)
+        return self
 
     def filter_by_category(self, category_name: str):
-        """Tick a category checkbox and hand back the API response it triggered."""
+        """Tick a category checkbox. Same deal as sort_by: no network
+        wait, the visible outcome is the contract."""
         self.log.info(f"Filtering by category '{category_name}'")
-        with self.page.expect_response(lambda r: "/products" in r.url and r.ok) as response_info:
-            self.page.get_by_role("checkbox", name=category_name).check()
-        return response_info.value
+        self.page.get_by_role("checkbox", name=category_name).check()
+        return self
 
     def visible_product_names(self) -> list[str]:
         return self.product_names.all_inner_texts()
