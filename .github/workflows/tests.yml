@@ -10,13 +10,12 @@ on:
     branches: [main]
   pull_request:
 
-# CI currently runs the API suite only, and that is deliberate. The
-# public Toolshop instance sits behind Cloudflare bot protection, which
-# challenges traffic from datacenter IPs like GitHub's runners, so UI
-# tests never reach the app (the API host is not challenged). Rather
-# than trying to evade a security control, the plan is to self-host the
-# app inside the pipeline with Docker and point the UI suite at
-# localhost. Until then, the UI suite runs locally.
+# Two parallel jobs on two fresh VMs. The API suite runs against the
+# public API host (not bot-challenged, proven reliable). The UI suite
+# self-hosts the app under test on the runner with docker compose,
+# because the public site sits behind Cloudflare bot protection that
+# challenges datacenter IPs. Testing our own deployment instead of
+# evading someone else's security control is the whole design.
 jobs:
   api-tests:
     runs-on: ubuntu-latest
@@ -56,5 +55,77 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: api-test-results
+          path: results/
+          retention-days: 30
+
+  ui-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v5
+
+      # Start the app under test FIRST. Docker and compose come
+      # preinstalled on GitHub's runners. While the containers boot and
+      # the Angular dev server compiles in the background, the Python
+      # and browser setup below runs, so the waits overlap.
+      - name: Start the app under test
+        run: docker compose up -d
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Chromium only in CI: one engine keeps the pipeline fast, and
+      # --with-deps apt-installs the Linux system libraries a bare
+      # runner does not have.
+      - name: Install Playwright Chromium
+        run: playwright install --with-deps chromium
+
+      # Same provisioning ritual as local development, plus a readiness
+      # gate: MariaDB needs a few seconds to initialize before it will
+      # accept the migration. -T because CI has no terminal to attach.
+      # cache:clear is NOT optional, the app caches API responses and a
+      # cache written before seeding serves ids that no longer exist.
+      - name: Seed the database
+        run: |
+          for i in $(seq 1 30); do
+            docker compose exec -T mariadb mysqladmin ping -h localhost -uroot -proot --silent && break
+            echo "waiting for mariadb ($i)..."
+            sleep 2
+          done
+          docker compose exec -T laravel-api php artisan migrate:fresh --seed
+          docker compose exec -T laravel-api php artisan cache:clear
+
+      # The Angular dev server listens only after its first compile
+      # finishes, so wait until the UI actually answers
+      - name: Wait for the UI to be ready
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:4200 > /dev/null && exit 0
+            echo "waiting for the UI ($i)..."
+            sleep 2
+          done
+          echo "UI never became ready" && exit 1
+
+      # Same two overrides as a local self-hosted run: the env var
+      # redirects the API clients, the flag redirects the browser tests
+      - name: Run the UI suite against the self-hosted app
+        env:
+          API_BASE_URL: http://localhost:8091
+        run: pytest -m ui --base-url http://localhost:4200
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-test-results
           path: results/
           retention-days: 30

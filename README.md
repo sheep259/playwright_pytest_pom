@@ -42,9 +42,10 @@ Runs the suite against your OWN deployment of the Toolshop instead of the shared
 ```bash
 docker compose up -d
 ```
-3. Build and seed the database (required on first start, and again after every `docker compose down` since the database data does not survive container removal):
+3. Build and seed the database, then clear the app's cache (required on first start, and again after every `docker compose down` since the database data does not survive container removal). The cache clear matters: the app caches the category tree, that cache survives `down` inside a named volume, and a stale tree serves category ids that no longer exist after a re-seed, which silently breaks category filtering:
 ```bash
 docker compose exec laravel-api php artisan migrate:fresh --seed
+docker compose exec laravel-api php artisan cache:clear
 ```
 4. Verify the app is up: the store at [http://localhost:4200](http://localhost:4200) and the API's Swagger docs at [http://localhost:8091/api/documentation](http://localhost:8091/api/documentation)
 5. Point the suite at your deployment and run. Two overrides, one per consumer: the `--base-url` flag redirects the UI tests (overrides `base_url` in `pytest.ini`) and the `API_BASE_URL` environment variable redirects the API clients (read by `config/settings.py`):
