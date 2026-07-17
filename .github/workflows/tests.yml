@@ -10,12 +10,18 @@ on:
     branches: [main]
   pull_request:
 
-# Two parallel jobs on two fresh VMs. The API suite runs against the
-# public API host (not bot-challenged, proven reliable). The UI suite
-# self-hosts the app under test on the runner with docker compose,
-# because the public site sits behind Cloudflare bot protection that
-# challenges datacenter IPs. Testing our own deployment instead of
-# evading someone else's security control is the whole design.
+# Two parallel jobs on two fresh VMs, deliberately covering two
+# DIFFERENT deployments of the app. The API suite runs against the
+# public API host (not bot-challenged, proven reliable), which keeps
+# the suite honest against infrastructure we do not control. The UI
+# suite self-hosts the app under test on the runner with docker
+# compose, because the public site sits behind Cloudflare bot
+# protection that challenges datacenter IPs; testing our own
+# deployment instead of evading someone else's security control is
+# the whole design. Known accepted trade-off: the public site resets
+# its database on a schedule, which can delete the api job's
+# registered user mid-run. The job takes seconds, the window is tiny,
+# and a re-run fixes it.
 jobs:
   api-tests:
     runs-on: ubuntu-latest

@@ -3,7 +3,7 @@
 [![tests](https://github.com/MasonGarza7/playwright_pytest_pom/actions/workflows/tests.yml/badge.svg)](https://github.com/MasonGarza7/playwright_pytest_pom/actions/workflows/tests.yml)
 
 ## Overview:
-This project is a UI and API test automation framework built with Python, Pytest, and Playwright. It targets [Practice Software Testing](https://practicesoftwaretesting.com), a modern Angular e-commerce application ("Toolshop") built specifically for test automation practice, along with its documented [REST API](https://api.practicesoftwaretesting.com/api/documentation).
+This project is a UI and API test automation framework built with Python, Pytest, and Playwright. It targets [Practice Software Testing](https://practicesoftwaretesting.com), a modern Angular e-commerce application ("Toolshop") built specifically for test automation practice, along with its documented [REST API](https://api.practicesoftwaretesting.com/api/documentation). Because the app is open source, the suite can target two deployments of it: the shared public website, or a self-hosted Docker deployment booted straight from this repo, which is exactly what CI does.
 
 What this framework demonstrates:
 - **Page Object Model (POM)** with a shared `BasePage` every page inherits from, plus a `NavBar` component object that pages compose. Inheritance for "is a page", composition for "has a navbar".
@@ -14,8 +14,18 @@ What this framework demonstrates:
 - **Self-contained HTML report**
 - **Screenshot-on-Failure**: full-page screenshots embedded directly into the report on failure.
 - **Zero hard sleeps**: All waiting is done with web-first assertions and response waits, so the suite is as fast as the site allows and no faster.
+- **CI/CD pipeline** in GitHub Actions: parallel API and UI jobs gate every pull request, pip downloads are cached, and the HTML report is published as a build artifact on every run.
+- **Self-hosted app inside CI**: the UI job boots the entire Toolshop stack on the runner with Docker Compose, seeds the database, and tests against localhost. Every CI run gets a fresh deployment, and the whole pipeline finishes in under two minutes.
 
 The suite currently runs 20 tests (11 UI, 9 API) green across all three browser engines.
+
+## Roadmap:
+- [x] Framework architecture, logging, HTML report, screenshot on failure
+- [x] Page objects and UI suites (login, search, sort, filter, product detail, cart)
+- [x] API suite (auth tokens, catalog contract, negative cases)
+- [x] GitHub Actions CI: parallel API and UI jobs gate every push to main and every pull request
+- [x] Publish the HTML report as a CI build artifact (downloadable from every run, kept 30 days)
+- [x] Docker: self-host the Toolshop inside the pipeline and bring the UI suite into CI
 
 ## Quick Start - Public Website:
 Runs the suite against the public [practicesoftwaretesting.com](https://practicesoftwaretesting.com) site, no Docker required.
@@ -38,7 +48,7 @@ python -m playwright install
 Runs the suite against your OWN deployment of the Toolshop instead of the shared public site. The app is open source with official images, so `docker-compose.yml` in this repo boots the whole stack locally: Angular UI, Laravel API, nginx, and MariaDB. Full control over the app version, the data, and the network, and no dependency on anyone else's uptime.
 
 1. Complete the Quick Start - Public Website steps above, plus install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-2. Start the stack (the first run downloads ~1.5GB of images, later runs take seconds):
+2. Start the stack (the first run downloads ~1.5GB of images, later runs take seconds). The `-d` flag runs the containers detached, meaning in the background, which frees the terminal back up. Without it, compose stays attached: it streams every container's logs live into the terminal and Ctrl+C stops the whole stack (useful when debugging a stack that will not boot):
 ```bash
 docker compose up -d
 ```
@@ -94,22 +104,22 @@ pytest -m api
 Useful flags, combinable with everything above:
 ```bash
 # verbose: list every test and its result
-pytest -v     
+pytest -v
 
 # Opens observable browser(s)
-pytest --headed  
+pytest --headed
 
-# pause 1000ms (1 second) after each Playwright action                                              
-pytest --headed --slowmo 1000                                  
+# pause 1000ms (1 second) after each Playwright action
+pytest --headed --slowmo 1000
 
 # swap the browser
-pytest --browser firefox  
+pytest --browser firefox
 
 # all three browsers in one run
-pytest --browser chromium --browser firefox --browser webkit  
+pytest --browser chromium --browser firefox --browser webkit
 
 # point the UI suite at another environment
-pytest --base-url https://other-env.com                        
+pytest --base-url https://other-env.com
 ```
 
 Flag and marker notes:
@@ -121,6 +131,9 @@ Flag and marker notes:
 ## Project Structure:
 ```bash
 playwright_pytest_pom/
+├── .github/
+│   └── workflows/
+│       └── tests.yml         # CI pipeline: parallel API and UI jobs, caching, report artifacts
 ├── .venv/                    # Local Python virtual environment (not committed)
 ├── api/                      # API client classes, the request-side twin of pages/
 │   ├── auth_api.py           # Client for the auth endpoints (login, /users/me)
@@ -159,6 +172,7 @@ playwright_pytest_pom/
 ├── conftest.py               # Global fixtures and hooks: browser windowing, page object fixtures,
 │                             # per-run test user registration, screenshot-on-failure
 ├── docker-compose.yml        # Boots the app under test locally: UI, API, nginx, and database
+├── LICENSE                   # MIT
 ├── pytest.ini                # Pytest config: discovery, markers, base URL, reporting, live logging
 └── requirements.txt          # Frozen dependencies for reproducing the environment
 ```
@@ -191,43 +205,133 @@ This logger started from a template I had used in previous projects and was upgr
 - The image is then base64-encoded and attached to that test's entry in the HTML report, so the report shows exactly what the page looked like at the moment of failure.
 - API tests are skipped automatically, they have no `page` fixture and nothing to screenshot. A crashed browser is also handled: if the screenshot itself fails, the run logs a warning instead of dying inside the reporting hook.
 
-## Reasonings:
-- **Why semantic locators first**: Playwright's own docs recommend role/label/placeholder locators because they track what a user actually perceives, and they double as a quiet accessibility audit. If `get_by_role("link", name="Sign in")` stops working, either the UI changed or its accessibility regressed. Both are worth knowing.
+## Failure Triage:
+Every real failure this project produced along the way landed in one of three categories, and telling them apart quickly is most of the debugging job:
 
-- **Why `get_by_test_id()` is retargeted to `data-test`**: The Toolshop ships `data-test` hooks on nearly everything, but Playwright's default test-id attribute is `data-testid`. One line in `conftest.py` (`playwright.selectors.set_test_id_attribute("data-test")`) makes `get_by_test_id("login-error")` work everywhere, which reads far better than raw CSS attribute strings scattered through the page objects.
+- **The test is wrong**: the search oracle encoded one deployment's incidental behavior as the contract, and the original sort/filter waits matched product image URLs by accident. The app was fine. The tests got fixed.
+- **The environment is wrong**: Cloudflare challenging the CI runners' datacenter IPs, and the public site's scheduled database reset deleting the run's registered user mid-run. The tests and the app code were both fine.
+- **The state is wrong**: a re-seeded database paired with a stale application cache served category and product ids from a dead data generation, silently breaking filtering and add-to-cart. The tests were correct, the app code was correct, but the data was corrupted. This issue inspired the `cache:clear` step that now follows every seed command.
 
-- **Why test-id locators are used at all when semantic locators are preferred**: Some elements have accessible names that change at runtime. The navbar user menu shows whoever is logged in, and the cart badge shows a count. Locating those by name would make the locator depend on test data. The `data-test` hook is the stable identity in those cases.
+A suite that helps a human place a failure in the right bucket fast is worth more than a suite that just goes red.
 
-- **Why there is exactly one XPath in the project**: In `home_page.py`, `open_product()` knows the `h5` holding the product name but needs to click the card link WRAPPING it. Climbing from a known child to its ancestor is the one job CSS cannot do and XPath exists for. Everywhere else, semantic or test-id locators win.
+## Reasonings and Learning Documentation:
+Every notable decision in this project, documented FAQ style. Click any question to expand its full story.
 
-- **Why there are no `sleep()` calls anywhere**: Hard waits are either too long (slow suite) or too short (flaky suite), and usually both on different days. Waiting is done three ways, each matched to what is being waited on: web-first assertions like `expect(...).to_be_visible()` that retry until a timeout, `expect_response()` around actions that verifiably trigger an API call on every deployment (search does, so its helper returns the response and the test asserts the grid against that data), and the `wait_until()` polling helper in `utils/waits.py` for multi-element outcomes like "every price in the grid is ascending". All three are dynamic waits: they cost only as long as the condition actually takes.
+<details>
+<summary><b>Why semantic locators first?</b></summary>
 
-- **Why the global assertion timeout is 10 seconds**: The demo site is public and slows down under load. A WebKit run once failed purely because the account page took longer than the default 5 seconds to render, then passed in 5 seconds on rerun, which is the signature of a flake rather than a bug. Passing assertions return the instant their condition is met, so the test moves on instantly. Only genuine failures wait the full 10 seconds.
+Playwright's own docs recommend role/label/placeholder locators because they track what a user actually perceives, and they double as a quiet accessibility audit. If `get_by_role("link", name="Sign in")` stops working, either the UI changed or its accessibility regressed. Both are worth knowing.
 
-- **Why headed Chromium opens maximized but headless runs use a fixed 1280x800 viewport**: Chromium accepts `--start-maximized` at launch, but only takes effect when `no_viewport` stops Playwright from forcing its own context size. Firefox and WebKit have no maximize equivalent, so they get the fixed viewport. Headless runs get the fixed viewport too, because with no real window to maximize, `no_viewport` falls back to a small default that flips the site into its responsive mobile layout and changes what is on screen.
+</details>
 
-- **Why the UI base URL is in `pytest.ini` but the API base URL is in `config/settings.py`**: They have different consumers. The `base_url` ini value is read by pytest-playwright and baked into every browser context, which is what lets tests call `page.goto("/")` and be overridden at runtime with `--base-url`. The `APIRequestContext` for API tests is created manually in a fixture, so nothing reads the ini value for it; it takes its base URL from `settings.py` instead. 
+<details>
+<summary><b>Why is get_by_test_id() retargeted to data-test?</b></summary>
 
-- **Why the API token fixture is function-scoped instead of session-scoped**: The API issues tokens that expire in 300 seconds. A session-scoped token would be marginally faster today and would start producing unexplainable 401s the day the suite grows past five minutes. Requesting a fresh token per test trades a few milliseconds for scalability. 
+The Toolshop ships `data-test` hooks on nearly everything, but Playwright's default test-id attribute is `data-testid`. One line in `conftest.py` (`playwright.selectors.set_test_id_attribute("data-test")`) makes `get_by_test_id("login-error")` work everywhere, which reads far better than raw CSS attribute strings scattered through the page objects.
 
-- **Why the suite registers its own user per run instead of using the seeded demo account**: The suite originally logged in as the site's public `customer@` demo account, until a run started failing with HTTP 423 Locked. Investigating showed the Toolshop locks ANY account after 3 failed login attempts, and the demo account is shared with everyone on the internet practicing against this site. The fix is self-sufficiency: a session fixture registers a unique throwaway user through the API at the start of every run, and all login tests use it. As a second layer, the invalid-credentials tests (UI and API) deliberately use a nonexistent email, which returns the same 401 contract but can never lock a real account. A single cross-browser run of a wrong-password test against a real account would hit the lockout threshold by itself.
+</details>
 
-- **Why tests create their data through the API, not the UI**: Registering the test user happens with one `POST /users/register` call in a fixture instead of driving the registration form. Setup through the API is faster and less fragile, and it keeps each UI test focused on the one behavior it exists to verify. The UI registration form is a feature to test in its own right, separately from every login test using it as a prerequisite.
+<details>
+<summary><b>Why are test-id locators used at all when semantic locators are preferred?</b></summary>
 
-- **Why the test folders contain `__init__.py` files**: `tests/ui/` and `tests/api/` both have a `test_products.py`. Without `__init__.py` files, pytest imports both as the same bare module name `test_products` and refuses to collect. Making the test directories packages gives each file a unique dotted path (`tests.ui.test_products`).
+Some elements have accessible names that change at runtime. The navbar user menu shows whoever is logged in, and the cart badge shows a count. Locating those by name would make the locator depend on test data. The `data-test` hook is the stable identity in those cases.
 
-- **Why failure screenshots are embedded in the report instead of linked**: A report that references image files by path breaks the moment it is shared without the folder next to it. Base64-embedding trades a larger file size for a single-file artifact that can be attached to a bug ticket as-is. A traditional linking approach could be implemented if file size became an issue. But at that point, the real issue is how many tests are failing. 
+</details>
 
-- **Why CI runs the API suite but not the UI suite (for now)**: The first cross-suite CI run passed every API test and failed every UI test with the same failure snapshot: a Cloudflare "Performing security verification" challenge page. The public Toolshop instance sits behind Cloudflare bot protection, which challenges traffic from datacenter IPs like GitHub's runners, so the UI tests never reached the app (the API host is not challenged the same way, and my home IP is residential, which is why everything passes locally). I ruled out stealth plugins and user-agent tricks on principle: evading someone else's security control is not test automation. The real fix is the industry-standard one: stop testing infrastructure I do not control and self-host the app under test inside the pipeline. The Toolshop is open source with official Docker images, so the roadmap brings the UI suite back into CI against a localhost deployment. Until then, CI runs the API suite and the UI suite runs locally.
+<details>
+<summary><b>Why is there exactly one XPath in the project?</b></summary>
 
-- **Why the search tests assert on name OR description**: Self-hosting the app surfaced a behavior difference between the two deployments this suite can target. The Docker images run newer search code (fulltext matching over names AND descriptions) than the public website (name substring matching). The same search for "pliers" returned only pliers on the public website, but on the self-hosted deployment it also returned a toolbelt whose description mentions pliers, and the tests failed there. The tests were wrong, not the app: their oracle came from watching the public website behave, which encoded one deployment's incidental behavior as the contract. The hardened oracle asserts the actual requirement, every hit must mention the term in its name or its description, and the UI grid must render exactly what the search API returned. That holds on both deployments and still catches the potential future bug, a product mentioning the term nowhere.
+In `home_page.py`, `open_product()` knows the `h5` holding the product name but needs to click the card link WRAPPING it. Climbing from a known child to its ancestor is the one job CSS cannot do and XPath exists for. Everywhere else, semantic or test-id locators win.
 
-- **Why the sort and filter tests poll the visible outcome instead of waiting on a network call**: The two deployments implement sorting differently. The self-hosted deployment asks the API for a re-sorted product list, so a network request fires. The public website re-orders the grid inside the browser, no request at all. The original tests waited for that request, which meant that on the public website they sat waiting for something that was never coming. That is the trap with network waits: they bake HOW the feature works into the test, and HOW is exactly what changes between versions. WHAT the user sees does not change: after sorting by price, prices go up, and after filtering by Hammer, only hammers remain. So these tests now poll for that visible outcome with the `wait_until()` helper and pass the moment it appears. The same investigation exposed something scarier: these tests used to pass on the public website anyway, because the old wait accepted any URL containing `/products`, and product IMAGES live under `/assets/img/products/`. The test waited for an API call, got an image file instead, and by then the browser had already re-ordered the grid, so the assertions found sorted prices. Two bugs canceling each other out into a green checkmark, the most dangerous kind of pass. Search is a different story: it fires an API call on both deployments, because the browser only ever holds one page of products and searching the full catalog requires asking the server. So the search tests keep the stronger network-based oracle. Each feature gets the strictest oracle the evidence supports. 
+</details>
 
-## Roadmap:
-- [x] Framework architecture, logging, HTML report, screenshot on failure
-- [x] Page objects and UI suites (login, search, sort, filter, product detail, cart)
-- [x] API suite (auth tokens, catalog contract, negative cases)
-- [x] GitHub Actions CI: API suite runs on every push (see Reasonings for why the UI suite is not in CI yet)
-- [x] Publish the HTML report as a CI build artifact (downloadable from every run, kept 30 days)
-- [ ] Docker: self-host the Toolshop inside the pipeline and bring the UI suite into CI
+<details>
+<summary><b>Why are there no sleep() calls anywhere?</b></summary>
+
+Hard waits are either too long (slow suite) or too short (flaky suite), and usually both on different days. Waiting is done three ways, each matched to what is being waited on: web-first assertions like `expect(...).to_be_visible()` that retry until a timeout, `expect_response()` around actions that verifiably trigger an API call on every deployment (search does, so its helper returns the response and the test asserts the grid against that data), and the `wait_until()` polling helper in `utils/waits.py` for multi-element outcomes like "every price in the grid is ascending". All three are dynamic waits: they cost only as long as the condition actually takes.
+
+</details>
+
+<details>
+<summary><b>Why is the global assertion timeout 10 seconds?</b></summary>
+
+The demo site is public and slows down under load. A WebKit run once failed purely because the account page took longer than the default 5 seconds to render, then passed in 5 seconds on rerun, which is the signature of a flake rather than a bug. Passing assertions return the instant their condition is met, so the test moves on instantly. Only genuine failures wait the full 10 seconds.
+
+</details>
+
+<details>
+<summary><b>Why does headed Chromium open maximized while headless runs use a fixed 1280x800 viewport?</b></summary>
+
+Chromium accepts `--start-maximized` at launch, but only takes effect when `no_viewport` stops Playwright from forcing its own context size. Firefox and WebKit have no maximize equivalent, so they get the fixed viewport. Headless runs get the fixed viewport too, because with no real window to maximize, `no_viewport` falls back to a small default that flips the site into its responsive mobile layout and changes what is on screen.
+
+</details>
+
+<details>
+<summary><b>Why is the UI base URL in pytest.ini but the API base URL in config/settings.py?</b></summary>
+
+They have different consumers. The `base_url` ini value is read by pytest-playwright and baked into every browser context, which is what lets tests call `page.goto("/")` and be overridden at runtime with `--base-url`. The `APIRequestContext` for API tests is created manually in a fixture, so nothing reads the ini value for it; it takes its base URL from `settings.py` instead.
+
+</details>
+
+<details>
+<summary><b>Why is the API token fixture function-scoped instead of session-scoped?</b></summary>
+
+The API issues tokens that expire in 300 seconds. A session-scoped token would be marginally faster today and would start producing unexplainable 401s the day the suite grows past five minutes. Requesting a fresh token per test trades a few milliseconds for scalability.
+
+</details>
+
+<details>
+<summary><b>Why does the suite register its own user per run instead of using the seeded demo account?</b></summary>
+
+The suite originally logged in as the site's public `customer@` demo account, until a run started failing with HTTP 423 Locked. Investigating showed the Toolshop locks ANY account after 3 failed login attempts, and the demo account is shared with everyone on the internet practicing against this site. The fix is self-sufficiency: a session fixture registers a unique throwaway user through the API at the start of every run, and all login tests use it. As a second layer, the invalid-credentials tests (UI and API) deliberately use a nonexistent email, which returns the same 401 contract but can never lock a real account. A single cross-browser run of a wrong-password test against a real account would hit the lockout threshold by itself.
+
+</details>
+
+<details>
+<summary><b>Why do tests create their data through the API, not the UI?</b></summary>
+
+Registering the test user happens with one `POST /users/register` call in a fixture instead of driving the registration form. Setup through the API is faster and less fragile, and it keeps each UI test focused on the one behavior it exists to verify. The UI registration form is a feature to test in its own right, separately from every login test using it as a prerequisite.
+
+</details>
+
+<details>
+<summary><b>Why do the test folders contain __init__.py files?</b></summary>
+
+`tests/ui/` and `tests/api/` both have a `test_products.py`. Without `__init__.py` files, pytest imports both as the same bare module name `test_products` and refuses to collect. Making the test directories packages gives each file a unique dotted path (`tests.ui.test_products`).
+
+</details>
+
+<details>
+<summary><b>Why are failure screenshots embedded in the report instead of linked?</b></summary>
+
+A report that references image files by path breaks the moment it is shared without the folder next to it. Base64-embedding trades a larger file size for a single-file artifact that can be attached to a bug ticket as-is. A traditional linking approach could be implemented if file size became an issue. But at that point, the real issue is how many tests are failing.
+
+</details>
+
+<details>
+<summary><b>Why does the CI pipeline self-host the app under test?</b></summary>
+
+The first cross-suite CI run passed every API test and failed every UI test with the same failure snapshot: a Cloudflare "Performing security verification" challenge page. The public Toolshop instance sits behind Cloudflare bot protection, which challenges traffic from datacenter IPs like GitHub's runners, so the UI tests never reached the app (the API host is not challenged the same way, and my home IP is residential, which is why everything passes locally). I ruled out stealth plugins and user-agent tricks on principle: evading someone else's security control is not test automation. The real fix is the industry-standard one: stop testing infrastructure I do not control and self-host the app under test inside the pipeline. The Toolshop is open source with official Docker images, so that is exactly what the pipeline does now: the ui-tests job boots the whole stack on the runner with Docker Compose, provisions and seeds the database, waits for readiness, and runs the UI suite against localhost. Every CI run tests a fresh deployment with fresh data, and the entire pipeline, app deployment included, finishes in under two minutes.
+
+</details>
+
+<details>
+<summary><b>Why does the compose file deviate from the app's own?</b></summary>
+
+`docker-compose.yml` started as the Toolshop's own production compose file, with three deliberate deviations. First, the upstream `web` image (the nginx in front of the API) is published for arm64 only, and its workers crash under emulation on amd64 machines: nginx calls the `io_setup` syscall, which the QEMU emulator does not implement. Inspecting the upstream Dockerfile showed that image is just stock nginx plus one config file, so this repo recreates it from its parts: the same nginx base image with the same vhost config bind-mounted from `docker/vhost.conf`. Second, the upstream `cron` service is dropped. Its scheduled jobs include the periodic database reset the public site runs, and a test stack whose data can reset itself mid-run is sabotage. Third, only the two ports the tests need (4200 for the UI, 8091 for the API) are published to the host. The database stays reachable only inside the compose network, where the services address each other by service name.
+
+</details>
+
+<details>
+<summary><b>Why do the search tests assert on name OR description?</b></summary>
+
+Self-hosting the app surfaced a behavior difference between the two deployments this suite can target. The Docker images run newer search code (fulltext matching over names AND descriptions) than the public website (name substring matching). The same search for "pliers" returned only pliers on the public website, but on the self-hosted deployment it also returned a toolbelt whose description mentions pliers, and the tests failed there. The tests were wrong, not the app: their oracle came from watching the public website behave, which encoded one deployment's incidental behavior as the contract. The hardened oracle asserts the actual requirement, every hit must mention the term in its name or its description, and the UI grid must render exactly what the search API returned. That holds on both deployments and still catches the potential future bug, a product mentioning the term nowhere.
+
+</details>
+
+<details>
+<summary><b>Why do the sort and filter tests poll the visible outcome instead of waiting on a network call?</b></summary>
+
+The two deployments implement sorting differently. The self-hosted deployment asks the API for a re-sorted product list, so a network request fires. The public website re-orders the grid inside the browser, no request at all. The original tests waited for that request, which meant that on the public website they sat waiting for something that was never coming. That is the trap with network waits: they bake HOW the feature works into the test, and HOW is exactly what changes between versions. WHAT the user sees does not change: after sorting by price, prices go up, and after filtering by Hammer, only hammers remain. So these tests now poll for that visible outcome with the `wait_until()` helper and pass the moment it appears. The same investigation exposed something scarier: these tests used to pass on the public website anyway, because the old wait accepted any URL containing `/products`, and product IMAGES live under `/assets/img/products/`. The test waited for an API call, got an image file instead, and by then the browser had already re-ordered the grid, so the assertions found sorted prices. Two bugs canceling each other out into a green checkmark, the most dangerous kind of pass. Search is a different story: it fires an API call on both deployments, because the browser only ever holds one page of products and searching the full catalog requires asking the server. So the search tests keep the stronger network-based oracle. Each feature gets the strictest oracle the evidence supports.
+
+</details>

@@ -12,6 +12,10 @@
 
 name: toolshop
 
+# Deliberately NOT carried over from the upstream compose file: the
+# cron service. Its scheduled jobs include the periodic database reset
+# the public site runs, and a test stack whose data can reset itself
+# mid-run is sabotage.
 services:
   # Laravel backend. Not exposed directly, nginx (web) fronts it.
   laravel-api:

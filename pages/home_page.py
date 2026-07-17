@@ -37,9 +37,15 @@ class HomePage(BasePage):
         return self
 
     def search(self, term: str):
-        """Run a search and hand back the API response it triggered,
-        same pattern as sort_by. Lets tests assert the grid against
-        exactly what the search endpoint returned."""
+        """Run a search and hand back the API response it triggered.
+
+        Search is the one grid action that verifiably fires an API call
+        on BOTH deployments (the browser only ever holds one page of
+        products, so searching the catalog must ask the server). That is
+        why this helper keeps the response pattern that sort_by and
+        filter_by_category gave up: tests can assert the grid against
+        exactly what the search endpoint returned.
+        """
         self.log.info(f"Searching for '{term}'")
         self.search_box.fill(term)
         with self.page.expect_response(lambda r: "/products/search" in r.url and r.ok) as response_info:
