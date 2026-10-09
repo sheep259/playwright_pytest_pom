@@ -59,3 +59,10 @@ class TestProductCatalog:
             assert "pliers" in haystack, (
                 f"'{product['name']}' matches neither by name nor description"
             )
+
+    def test_search_no_results_returns_empty_list(self, products_api):
+        """Verify a search with no hits returns 200 and an empty list."""
+        response = products_api.search("thisworddoesnotexist12345")
+        assert response.status == 200
+        hits = response.json()["data"]
+        assert hits == [], f"Expected no hits, got {hits}"
