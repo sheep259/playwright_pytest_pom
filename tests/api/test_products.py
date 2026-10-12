@@ -60,6 +60,21 @@ class TestProductCatalog:
                 f"'{product['name']}' matches neither by name nor description"
             )
 
+    @pytest.mark.parametrize("term", ["pliers", "hammer", "saw"])
+    def test_search_terms_only_return_matching_products(self, products_api, term):
+        """Verify each search term only returns products mentioning it."""
+        response = products_api.search(term)
+
+        assert response.status == 200
+        hits = response.json()["data"]
+        assert hits, f"Expected search hits for '{term}'"
+
+        for product in hits:
+            haystack = f"{product['name']} {product['description'] or ''}".lower()
+            assert term in haystack,(
+                f"'{product['name']}' matches neither by name nor description"
+            )
+
     def test_search_no_results_returns_empty_list(self, products_api):
         """Verify a search with no hits returns 200 and an empty list."""
         response = products_api.search("thisworddoesnotexist12345")
