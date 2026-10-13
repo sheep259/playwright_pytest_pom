@@ -27,6 +27,14 @@ The suite currently runs 20 tests (11 UI, 9 API) green across all three browser 
 - [x] Publish the HTML report as a CI build artifact (downloadable from every run, kept 30 days)
 - [x] Docker: self-host the Toolshop inside the pipeline and bring the UI suite into CI
 
+## My Contributions
+
+This fork adds original test cases on top of the upstream project:
+
+- `test_search_no_results_returns_empty_list` (API): verifies a search with no hits returns 200 and an empty list.
+- `test_search_terms_only_return_matching_products` (API, parametrized): covers `pliers`, `hammer`, `saw`; each run checks status 200, non-empty results, and that every hit mentions the term.
+- `test_search_product_name_from_api` (API + UI): fetches a real product name via the API, searches for it on the home page, and verifies the product appears in the results.
+
 ## Quick Start - Public Website:
 Runs the suite against the public [practicesoftwaretesting.com](https://practicesoftwaretesting.com) site, no Docker required.
 
