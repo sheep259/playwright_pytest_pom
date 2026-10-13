@@ -26,6 +26,16 @@ class TestSearch:
         # And the grid must render exactly what the API returned
         expect(home_page.product_names).to_have_text([p["name"] for p in hits])
 
+    def test_search_product_name_from_api(self, api_context, home_page):
+        response = api_context.get("/products")
+        products = response.json()["data"]
+        product_name = products[0]["name"]
+
+        home_page.search(product_name)
+
+        names = home_page.visible_product_names()
+        assert product_name in names, f"'{product_name}' not found in search results"
+
     def test_search_with_no_matches_shows_message(self, home_page):
         """Verify a search with no hits shows the no-results message."""
         # A nonsense token on purpose. A phrase like "definitely not a
